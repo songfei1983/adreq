@@ -42,4 +42,4 @@ go test ./...
 ## 说明与已知问题
 
 - 本工程以演示链路与并发模型为主，过滤器逻辑整体偏示例/占位实现。
-- `HandleRequestWithPool` 当前会在 worker 尚未完成时就从 `Auction` 取结果，可能导致 `seatbid` 为空；这是示例中的一个并发时序问题（见 [server/server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/server.go)）。
+- `HandleRequestWithPool` 会等待所有 worker 完成后再汇总结果，避免因为并发时序导致 `seatbid` 为空（见 [server/server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/server.go)）。

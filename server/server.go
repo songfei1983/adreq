@@ -141,7 +141,7 @@ func (s *AdServer) HandleRequestWithPool(ctx context.Context, req *model.BidRequ
 		return s.HandleRequest(ctx, req)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	reqCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 
 	response := &model.BidResponse{
@@ -149,27 +149,27 @@ func (s *AdServer) HandleRequestWithPool(ctx context.Context, req *model.BidRequ
 	}
 
 	var wg sync.WaitGroup
-	var mu sync.Mutex
 	resultCh := make(chan *model.BidResponse, len(req.Imp))
 
 	for i := range req.Imp {
-		imp := &req.Imp[i]
+		imp := req.Imp[i]
 		wg.Add(1)
 
-		job := bidder.Job(func(ctx context.Context) {
+		job := bidder.Job(func(_ context.Context) {
 			defer wg.Done()
 
-			resp, err := s.HandleRequest(ctx, &model.BidRequest{
+			resp, err := s.HandleRequest(reqCtx, &model.BidRequest{
 				ID:  req.ID,
-				Imp: []model.Imp{*imp},
+				Imp: []model.Imp{imp},
 			})
 			if err != nil {
 				return
 			}
 
-			mu.Lock()
-			defer mu.Unlock()
-			resultCh <- resp
+			select {
+			case resultCh <- resp:
+			case <-reqCtx.Done():
+			}
 		})
 
 		if !s.pool.Submit(job) {

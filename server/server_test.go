@@ -63,6 +63,9 @@ func TestHandleRequestWithWorkerPool(t *testing.T) {
 	if resp.ID != req.ID {
 		t.Errorf("Response ID mismatch: got %s, want %s", resp.ID, req.ID)
 	}
+	if len(resp.SeatBid) == 0 {
+		t.Fatalf("Expected at least one seatbid, got 0")
+	}
 
 	t.Logf("Response with pool: %+v", resp)
 }
