@@ -1,5 +1,7 @@
 # adreq
 
+[English](file:///Users/songfei/Develop/github.com/songfei1983/adreq/README.en.md)
+
 一个用 Go 编写的广告竞价请求（ad request）处理链路示例工程：将一个 `BidRequest`（包含多个 `Imp`）并发处理为 `BidResponse`，中间包含候选生成、过滤链、出价、竞价排序与去重等步骤。
 
 ## 代码结构
@@ -10,6 +12,9 @@
 - 基础设施（WorkerPool）：[bidder/worker_pool.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/worker_pool.go)
 - 策略/规则（过滤链、预算缓存、各类过滤器）：[filter/chain.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/filter/chain.go)
 - 领域模型（请求/响应/中间对象，按 struct 拆分）：[model](file:///Users/songfei/Develop/github.com/songfei1983/adreq/model/)
+- 文档索引（中英双语）：[docs/README.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/README.md)
+- 架构图： [architecture.zh.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/architecture.zh.md) | [architecture.en.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/architecture.en.md)
+- 时序图： [sequence.zh.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/sequence.zh.md) | [sequence.en.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/sequence.en.md)
 
 ## 核心流程
 
