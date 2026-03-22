@@ -5,20 +5,19 @@
 ## 代码结构
 
 - 入口与演示：[main.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/main.go)
-- 请求编排层（按 Imp 并发处理、聚合竞价结果、生成响应）：[server/server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/server.go)
-- 候选与竞价核心（候选生成、过滤链调用、出价、竞价排序/去重、并发限流）：[bidder/bidder.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/bidder.go)
-- WorkerPool（固定 worker + 有界队列）：[bidder/workerpool.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/workerpool.go)
-- 过滤链与预算缓存：[filter/filter.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/filter/filter.go)，过滤器实现：[filter/impl.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/filter/impl.go)
-- 数据结构：[model/model.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/model/model.go)，候选对象：[model/candidate.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/model/candidate.go)
+- 应用服务（请求编排与响应组装）：[server/ad_server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/ad_server.go)
+- 领域服务（候选处理、过滤、出价、并发限流）：[bidder/processor.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/processor.go)
+- 基础设施（WorkerPool）：[bidder/worker_pool.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/worker_pool.go)
+- 策略/规则（过滤链、预算缓存、各类过滤器）：[filter/chain.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/filter/chain.go)
+- 领域模型（请求/响应/中间对象，按 struct 拆分）：[model](file:///Users/songfei/Develop/github.com/songfei1983/adreq/model/)
 
 ## 核心流程
 
 1. `server.AdServer` 接收 `BidRequest`
 2. 对每个 `Imp` 并发执行 `Processor.ProcessImp`
 3. `ProcessImp` 生成候选（示例为随机模拟）→ 通过 `filter.Chain` 逐个过滤 → 调用 `Bidder.Bid` 出价
-4. 将所有 bid 作为候选投入 `Auction`
-5. `Auction` 按价格排序并进行去重（同一 `ImpID` 仅选一个 winner；同一 `(AdSlotID, AdvertiserID)` 只允许一次），输出 TopN
-6. 组装为 `BidResponse.SeatBid`
+4. `server.AdServer` 对每个 `Imp` 的 bids 按价格降序取 TopN（默认 2）
+5. 组装为 `BidResponse.SeatBid`
 
 ## 运行
 
@@ -42,4 +41,4 @@ go test ./...
 ## 说明与已知问题
 
 - 本工程以演示链路与并发模型为主，过滤器逻辑整体偏示例/占位实现。
-- `HandleRequestWithPool` 会等待所有 worker 完成后再汇总结果，避免因为并发时序导致 `seatbid` 为空（见 [server/server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/server.go)）。
+- `HandleRequestWithPool` 会等待所有 worker 完成后再汇总结果，避免因为并发时序导致 `seatbid` 为空（见 [server/ad_server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/ad_server.go)）。

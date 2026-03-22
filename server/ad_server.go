@@ -12,8 +12,10 @@ import (
 )
 
 type AdServer struct {
-	processor *bidder.Processor
-	pool      *bidder.WorkerPool
+	processor      ImpProcessor
+	pool           *bidder.WorkerPool
+	requestTimeout time.Duration
+	maxBidsPerImp  int
 }
 
 func NewAdServer(maxConcurrent int) *AdServer {
@@ -36,12 +38,14 @@ func NewAdServer(maxConcurrent int) *AdServer {
 	processor := bidder.NewProcessor(defaultBidder, fc, maxConcurrent)
 
 	return &AdServer{
-		processor: processor,
+		processor:      processor,
+		requestTimeout: 100 * time.Millisecond,
+		maxBidsPerImp:  2,
 	}
 }
 
 func (s *AdServer) HandleRequest(ctx context.Context, req *model.BidRequest) (*model.BidResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	reqCtx, cancel := context.WithTimeout(ctx, s.requestTimeout)
 	defer cancel()
 
 	response := &model.BidResponse{
@@ -52,73 +56,42 @@ func (s *AdServer) HandleRequest(ctx context.Context, req *model.BidRequest) (*m
 		return response, nil
 	}
 
-	impCh := make(chan *model.Imp, len(req.Imp))
-	resultCh := make(chan *bidder.Auction, len(req.Imp))
-	errCh := make(chan error, len(req.Imp))
 	var wg sync.WaitGroup
+	seatBids := make([][]model.Bid, len(req.Imp))
 
 	for i := range req.Imp {
-		impCh <- &req.Imp[i]
-	}
-	close(impCh)
-
-	for imp := range impCh {
+		imp := &req.Imp[i]
 		wg.Add(1)
-		go func(i *model.Imp) {
+		go func(idx int, i *model.Imp) {
 			defer wg.Done()
 
 			select {
-			case <-ctx.Done():
-				errCh <- ctx.Err()
+			case <-reqCtx.Done():
 				return
 			default:
 			}
 
-			auction := bidder.NewAuction()
-			bids, err := s.processor.ProcessImp(ctx, i)
+			bids, err := s.processor.ProcessImp(reqCtx, i)
 			if err != nil {
-				errCh <- err
 				return
 			}
 
-			for _, bid := range bids {
-				auction.AddCandidate(&model.CandidateAd{
-					ID:         bid.ID,
-					ImpID:      bid.ImpID,
-					Price:      bid.Price,
-					Priority:   bid.Ext.Priority,
-					CampaignID: bid.Ext.CampaignID,
-					DealID:     bid.Ext.DealID,
-				})
-			}
-
-			resultCh <- auction
-		}(imp)
+			top := topBids(bids, s.maxBidsPerImp)
+			seatBids[idx] = toBidValues(top)
+		}(i, imp)
 	}
 
-	go func() {
-		wg.Wait()
-		close(resultCh)
-		close(errCh)
-	}()
+	wg.Wait()
 
-	for auction := range resultCh {
-		bids := auction.GetTopBid(2)
-		if len(bids) > 0 {
-			seatBid := model.SeatBid{
-				Bid: make([]model.Bid, len(bids)),
-			}
-			for i, b := range bids {
-				seatBid.Bid[i] = *b
-			}
-			response.SeatBid = append(response.SeatBid, seatBid)
-		}
+	if err := reqCtx.Err(); err != nil {
+		return nil, err
 	}
 
-	for err := range errCh {
-		if err != nil {
+	for _, bids := range seatBids {
+		if len(bids) == 0 {
 			continue
 		}
+		response.SeatBid = append(response.SeatBid, model.SeatBid{Bid: bids})
 	}
 
 	return response, nil
@@ -141,7 +114,7 @@ func (s *AdServer) HandleRequestWithPool(ctx context.Context, req *model.BidRequ
 		return s.HandleRequest(ctx, req)
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	reqCtx, cancel := context.WithTimeout(ctx, s.requestTimeout)
 	defer cancel()
 
 	response := &model.BidResponse{
@@ -149,42 +122,48 @@ func (s *AdServer) HandleRequestWithPool(ctx context.Context, req *model.BidRequ
 	}
 
 	var wg sync.WaitGroup
-	resultCh := make(chan *model.BidResponse, len(req.Imp))
+	seatBids := make([][]model.Bid, len(req.Imp))
 
 	for i := range req.Imp {
+		idx := i
 		imp := req.Imp[i]
 		wg.Add(1)
 
 		job := bidder.Job(func(_ context.Context) {
 			defer wg.Done()
 
-			resp, err := s.HandleRequest(reqCtx, &model.BidRequest{
-				ID:  req.ID,
-				Imp: []model.Imp{imp},
-			})
+			select {
+			case <-reqCtx.Done():
+				return
+			default:
+			}
+
+			bids, err := s.processor.ProcessImp(reqCtx, &imp)
 			if err != nil {
 				return
 			}
 
-			select {
-			case resultCh <- resp:
-			case <-reqCtx.Done():
-			}
+			top := topBids(bids, s.maxBidsPerImp)
+			seatBids[idx] = toBidValues(top)
 		})
 
-		if !s.pool.Submit(job) {
+		if !s.pool.Submit(reqCtx, job) {
 			wg.Done()
 			return nil, fmt.Errorf("pool full, request rejected")
 		}
 	}
 
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
+	wg.Wait()
 
-	for resp := range resultCh {
-		response.SeatBid = append(response.SeatBid, resp.SeatBid...)
+	if err := reqCtx.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, bids := range seatBids {
+		if len(bids) == 0 {
+			continue
+		}
+		response.SeatBid = append(response.SeatBid, model.SeatBid{Bid: bids})
 	}
 
 	return response, nil
