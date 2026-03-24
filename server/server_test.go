@@ -32,6 +32,11 @@ func TestHandleRequest(t *testing.T) {
 	if resp.ID != req.ID {
 		t.Errorf("Response ID mismatch: got %s, want %s", resp.ID, req.ID)
 	}
+	for _, sb := range resp.SeatBid {
+		if len(sb.Bid) > 2 {
+			t.Fatalf("Expected <=2 bids per seatbid, got %d", len(sb.Bid))
+		}
+	}
 
 	t.Logf("Response: %+v", resp)
 }
@@ -65,6 +70,11 @@ func TestHandleRequestWithWorkerPool(t *testing.T) {
 	}
 	if len(resp.SeatBid) == 0 {
 		t.Fatalf("Expected at least one seatbid, got 0")
+	}
+	for _, sb := range resp.SeatBid {
+		if len(sb.Bid) > 2 {
+			t.Fatalf("Expected <=2 bids per seatbid, got %d", len(sb.Bid))
+		}
 	}
 
 	t.Logf("Response with pool: %+v", resp)
