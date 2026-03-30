@@ -5,6 +5,6 @@ type Bid struct {
 	ImpID    string  `json:"impid"`
 	Price    float64 `json:"price"`
 	Currency string  `json:"currency"`
-	adm      string  `json:"adm,omitempty"`
-	Ext      BidExt  `json:"ext,omitempty"`
+	adm      string
+	Ext      BidExt `json:"ext,omitempty"`
 }

@@ -32,7 +32,7 @@ func (p *Processor) ProcessImp(ctx context.Context, imp *model.Imp) ([]*model.Bi
 
 	var wg sync.WaitGroup
 	var bidsMu sync.Mutex
-	var bids []*model.Bid
+	bids := make([]*model.Bid, 0)
 
 	for _, candidate := range candidates {
 		select {
@@ -44,11 +44,18 @@ func (p *Processor) ProcessImp(ctx context.Context, imp *model.Imp) ([]*model.Bi
 		p.semaphore <- struct{}{}
 		wg.Add(1)
 
-		go func(ad *model.CandidateAd) {
+		ad := *candidate
+		go func() {
 			defer wg.Done()
 			defer func() { <-p.semaphore }()
 
-			passed, err := p.filterChain.Apply(ctx, ad)
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			passed, err := p.filterChain.Apply(ctx, &ad)
 			if err != nil {
 				return
 			}
@@ -56,7 +63,7 @@ func (p *Processor) ProcessImp(ctx context.Context, imp *model.Imp) ([]*model.Bi
 				return
 			}
 
-			bid, err := p.bidder.Bid(ctx, ad)
+			bid, err := p.bidder.Bid(ctx, &ad)
 			if err != nil {
 				return
 			}
@@ -65,7 +72,7 @@ func (p *Processor) ProcessImp(ctx context.Context, imp *model.Imp) ([]*model.Bi
 				bids = append(bids, bid)
 				bidsMu.Unlock()
 			}
-		}(candidate)
+		}()
 	}
 
 	wg.Wait()
@@ -77,10 +84,13 @@ func (p *Processor) ProcessImp(ctx context.Context, imp *model.Imp) ([]*model.Bi
 }
 
 func (p *Processor) fetchCandidates(ctx context.Context, imp *model.Imp) []*model.CandidateAd {
+	timer := time.NewTimer(5 * time.Millisecond)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
 		return nil
-	case <-time.After(5 * time.Millisecond):
+	case <-timer.C:
 	}
 
 	candidates := make([]*model.CandidateAd, 0)

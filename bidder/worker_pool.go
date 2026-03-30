@@ -40,8 +40,8 @@ func (wp *WorkerPool) worker() {
 }
 
 func (wp *WorkerPool) Submit(ctx context.Context, job Job) bool {
-	wp.mu.RLock()
-	defer wp.mu.RUnlock()
+	wp.mu.Lock()
+	defer wp.mu.Unlock()
 
 	if wp.closed {
 		return false
@@ -57,10 +57,11 @@ func (wp *WorkerPool) Submit(ctx context.Context, job Job) bool {
 func (wp *WorkerPool) Close() {
 	wp.closeOnce.Do(func() {
 		wp.mu.Lock()
-		defer wp.mu.Unlock()
-
 		wp.closed = true
 		close(wp.jobQueue)
+		wp.mu.Unlock()
+
+		wp.wg.Wait()
 	})
 }
 
