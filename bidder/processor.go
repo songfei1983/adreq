@@ -17,6 +17,9 @@ type Processor struct {
 }
 
 func NewProcessor(bidder Bidder, fc FilterChain, maxConcurrent int) *Processor {
+	if maxConcurrent < 1 {
+		maxConcurrent = 1
+	}
 	return &Processor{
 		bidder:      bidder,
 		filterChain: fc,
@@ -33,26 +36,29 @@ func (p *Processor) ProcessImp(ctx context.Context, imp *model.Imp) ([]*model.Bi
 	var wg sync.WaitGroup
 	var bidsMu sync.Mutex
 	bids := make([]*model.Bid, 0)
+	var ctxErr error
 
 	for _, candidate := range candidates {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+		if err := ctx.Err(); err != nil {
+			ctxErr = err
+			break
 		}
 
-		p.semaphore <- struct{}{}
+		select {
+		case p.semaphore <- struct{}{}:
+		case <-ctx.Done():
+			ctxErr = ctx.Err()
+			break
+		}
 		wg.Add(1)
 
 		ad := *candidate
-		go func() {
+		go func(ad model.CandidateAd) {
 			defer wg.Done()
 			defer func() { <-p.semaphore }()
 
-			select {
-			case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
 				return
-			default:
 			}
 
 			passed, err := p.filterChain.Apply(ctx, &ad)
@@ -72,11 +78,14 @@ func (p *Processor) ProcessImp(ctx context.Context, imp *model.Imp) ([]*model.Bi
 				bids = append(bids, bid)
 				bidsMu.Unlock()
 			}
-		}()
+		}(ad)
 	}
 
 	wg.Wait()
 
+	if ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
