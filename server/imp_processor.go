@@ -7,5 +7,9 @@ import (
 )
 
 type ImpProcessor interface {
-	ProcessImp(ctx context.Context, imp *model.Imp) ([]*model.Bid, error)
+	ProcessCandidate(ctx context.Context, ad model.CandidateAd) (*model.CandidateDecision, error)
+}
+
+type CandidateSource interface {
+	FetchCandidates(ctx context.Context, imp *model.Imp) ([]model.CandidateAd, error)
 }

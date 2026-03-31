@@ -3,7 +3,7 @@
 本工程是一个广告竞价请求（ad request）处理链路示例，按职责可分为：
 
 - 应用服务：`server`（请求编排、并发调度、响应组装）
-- 领域服务：`bidder`（候选处理、过滤、出价、并发限流）
+- 领域服务：`bidder`（单候选处理、过滤、出价）
 - 策略/规则：`filter`（过滤链、预算、各类过滤器）
 - 领域模型：`model`（请求/响应/中间对象）
 
@@ -18,17 +18,20 @@ flowchart LR
 
   subgraph domain[领域层]
     proc[bidder.Processor]
+    source[bidder.RandomCandidateSource]
     bid[bidder.Bidder]
   end
 
   subgraph policy[策略/规则]
     chain[filter.Chain]
     f1[filter.Filter...]
-    cache[filter.BudgetCache]
+    bf[filter.BudgetFilter]
   end
 
   subgraph infra[基础设施]
     pool[bidder.WorkerPool]
+    exec[executor]
+    budget[infra.BudgetStore]
   end
 
   subgraph model[领域模型]
@@ -39,22 +42,24 @@ flowchart LR
 
   main --> srv
   srv --> req
-  srv -->|Direct| proc
+  srv --> exec
+  srv --> source
+  srv --> proc
   srv -->|WithWorkerPool| pool
   pool --> srv
   proc --> chain
   proc --> bid
   proc --> cand
   chain --> f1
-  f1 --> cache
+  chain --> bf
+  bf --> budget
   proc --> br
   srv --> br
 ```
 
 ## 分层说明
 
-- `server`：只做“调度 + 聚合”，对每个 `Imp` 调用 `processor.ProcessImp` 并选 TopN 后组装 `BidResponse`。
-- `bidder`：负责候选生成（示例为随机模拟）、调用 `filter.Chain`、调用 `Bidder` 出价，并通过 `semaphore` 控制候选并发度。
-- `filter`：通过 `Chain.Apply` 串行执行一组过滤器；预算通过 `BudgetCache` 扣减模拟。
+- `server`：只做“调度 + 聚合”，通过 Executor 扁平化并发地拉取候选与评估候选，最后对每个 `Imp` 做结果收敛与 Finalize。
+- `bidder`：实现单候选处理（`ProcessCandidate`），调用 `filter.Chain` + `Bidder` 完成过滤与出价。
+- `filter`：通过 `Chain.Apply` 串行执行过滤器；预算检查读取 `infra.BudgetStore`，预算扣减在 Finalize 阶段执行。
 - `model`：纯数据结构与简单领域方法（如 `CandidateAd.PassesFloor`）。
-

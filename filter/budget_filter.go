@@ -2,17 +2,20 @@ package filter
 
 import (
 	"context"
-	"errors"
 
 	"github.com/songfei1983/adreq/model"
 )
 
 type BudgetFilter struct {
-	cache *BudgetCache
+	budget BudgetReader
 }
 
-func NewBudgetFilter(cache *BudgetCache) *BudgetFilter {
-	return &BudgetFilter{cache: cache}
+type BudgetReader interface {
+	Get(campaignID string) (float64, bool)
+}
+
+func NewBudgetFilter(budget BudgetReader) *BudgetFilter {
+	return &BudgetFilter{budget: budget}
 }
 
 func (b *BudgetFilter) Name() string {
@@ -20,14 +23,16 @@ func (b *BudgetFilter) Name() string {
 }
 
 func (b *BudgetFilter) Filter(ctx context.Context, ad *model.CandidateAd) (bool, error) {
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 
-	if !b.cache.Deduct(ad.CampaignID, ad.Price) {
-		return false, errors.New("budget exhausted")
+	if b.budget == nil {
+		return true, nil
+	}
+	current, ok := b.budget.Get(ad.CampaignID)
+	if !ok || current < ad.Price {
+		return false, nil
 	}
 	return true, nil
 }

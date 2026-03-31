@@ -16,17 +16,16 @@ func NewChain(filters []Filter) *Chain {
 
 func (c *Chain) Apply(ctx context.Context, ad *model.CandidateAd) (bool, error) {
 	for _, f := range c.filters {
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-		default:
-			passed, err := f.Filter(ctx, ad)
-			if err != nil {
-				return false, err
-			}
-			if !passed {
-				return false, nil
-			}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+
+		passed, err := f.Filter(ctx, ad)
+		if err != nil {
+			return false, err
+		}
+		if !passed {
+			return false, nil
 		}
 	}
 	return true, nil

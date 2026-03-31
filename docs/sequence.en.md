@@ -2,8 +2,8 @@
 
 This repository demonstrates two processing modes:
 
-- Direct: one goroutine per `Imp`; inside each `Imp`, candidates are processed concurrently (limited by a `semaphore`)
-- WorkerPool: each `Imp` is wrapped as a job submitted to `WorkerPool` and executed by fixed workers; inside each job, candidates are still processed concurrently
+- Direct: `server.AdServer` uses an Executor to fan out tasks (bounded concurrency) for `Imp` candidate fetch and candidate evaluation; business logic stays synchronous per-task
+- WorkerPool: same orchestration model, but the Executor submits tasks to a bounded `WorkerPool`
 
 ## Direct Processing
 
@@ -12,36 +12,41 @@ sequenceDiagram
   autonumber
   participant Caller as main/runDemo
   participant S as server.AdServer
-  participant P as bidder.Processor
+  participant E as executor.Executor
+  participant CS as CandidateSource
+  participant P as ImpProcessor
   participant FC as filter.Chain
   participant F as filter.Filter*
   participant B as bidder.Bidder
+  participant Fin as BidFinalizer
 
   Caller->>S: HandleRequest(ctx, BidRequest)
   loop each Imp
-    par goroutine per Imp
-      S->>P: ProcessImp(reqCtx, imp)
-      P->>P: fetchCandidates()
-      loop each CandidateAd
-        par candidate goroutine (semaphore limited)
-          P->>FC: Apply(ctx, ad)
-          loop each filter
-            FC->>F: Filter(ctx, ad)
-          end
-          alt passed
-            P->>B: Bid(ctx, ad)
-            B-->>P: Bid
-          else rejected
-            P-->>P: drop
-          end
-        end
-      end
-      P-->>S: []*Bid
-      S-->>S: topBids + append SeatBid
+    S->>E: Go(fetch candidates)
+    E->>CS: FetchCandidates(reqCtx, imp)
+    CS-->>E: []CandidateAd
+    E-->>S: candidates
+  end
+  loop each CandidateAd
+    S->>E: Go(process candidate)
+    E->>P: ProcessCandidate(reqCtx, ad)
+    P->>FC: Apply(ctx, ad)
+    loop each filter
+      FC->>F: Filter(ctx, ad)
     end
+    alt passed
+      P->>B: Bid(ctx, ad)
+      B-->>P: Bid
+      P-->>E: CandidateDecision
+    else rejected
+      P-->>E: nil
+    end
+    E-->>S: CandidateDecision
+  end
+  S->>Fin: Finalize(decisions, budget)
+  Fin-->>S: []SeatBid
   end
   S-->>Caller: BidResponse
-```
 
 ## Worker Pool Processing
 
@@ -50,25 +55,39 @@ sequenceDiagram
   autonumber
   participant Caller as main/runDemo
   participant S as server.AdServer
+  participant E as executor.Executor
+  participant CS as CandidateSource
   participant WP as bidder.WorkerPool
   participant W as worker goroutine
-  participant P as bidder.Processor
+  participant P as ImpProcessor
   participant FC as filter.Chain
   participant B as bidder.Bidder
+  participant Fin as BidFinalizer
 
   Caller->>S: HandleRequestWithPool(ctx, BidRequest)
   loop each Imp
-    S->>WP: Submit(reqCtx, job)
+    S->>E: Go(fetch candidates)
+    E->>WP: Submit(reqCtx, job)
   end
-  loop each job
+  loop each fetch job
     WP-->>W: dispatch job
-    W->>S: job(reqCtx)
-    S->>P: ProcessImp(reqCtx, imp)
+    W->>CS: FetchCandidates(reqCtx, imp)
+    CS-->>W: []CandidateAd
+    W-->>S: candidates
+  end
+  loop each CandidateAd
+    S->>E: Go(process candidate)
+    E->>WP: Submit(reqCtx, job)
+  end
+  loop each candidate job
+    WP-->>W: dispatch job
+    W->>P: ProcessCandidate(reqCtx, ad)
     P->>FC: Apply(ctx, ad)
     P->>B: Bid(ctx, ad)
-    P-->>S: []*Bid
-    S-->>S: topBids + append SeatBid
+    P-->>W: CandidateDecision
+    W-->>S: CandidateDecision
   end
+  S->>Fin: Finalize(decisions, budget)
+  Fin-->>S: []SeatBid
   S-->>Caller: BidResponse
 ```
-

@@ -8,9 +8,12 @@
 
 - 入口与演示：[main.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/main.go)
 - 应用服务（请求编排与响应组装）：[server/ad_server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/ad_server.go)
-- 领域服务（候选处理、过滤、出价、并发限流）：[bidder/processor.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/processor.go)
+- 领域服务（单候选业务处理）：[bidder/processor.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/processor.go)
+- 候选源（副作用）：[bidder/random_candidate_source.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/random_candidate_source.go)
+- 并发执行器：[executor/executor.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/executor/executor.go)
 - 基础设施（WorkerPool）：[bidder/worker_pool.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/worker_pool.go)
-- 策略/规则（过滤链、预算缓存、各类过滤器）：[filter/chain.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/filter/chain.go)
+- 基础设施（预算存储）：[infra/budget_store.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/infra/budget_store.go)
+- 策略/规则（过滤链、各类过滤器）：[filter/chain.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/filter/chain.go)
 - 领域模型（请求/响应/中间对象，按 struct 拆分）：[model](file:///Users/songfei/Develop/github.com/songfei1983/adreq/model/)
 - 文档索引（中英双语）：[docs/README.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/README.md)
 - 架构图： [architecture.zh.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/architecture.zh.md) | [architecture.en.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/architecture.en.md)
@@ -19,9 +22,9 @@
 ## 核心流程
 
 1. `server.AdServer` 接收 `BidRequest`
-2. 对每个 `Imp` 并发执行 `Processor.ProcessImp`
-3. `ProcessImp` 生成候选（示例为随机模拟）→ 通过 `filter.Chain` 逐个过滤 → 调用 `Bidder.Bid` 出价
-4. `server.AdServer` 对每个 `Imp` 的 bids 按价格降序取 TopN（默认 2）
+2. 对每个 `Imp` 通过 `CandidateSource` 拉取候选（由 Executor 并发调度）
+3. 对每个候选 `CandidateAd` 调用 `ImpProcessor.ProcessCandidate`（过滤链 → 出价）得到决策
+4. `BidFinalizer` 对每个 `Imp` 取 TopN 并执行预算扣减
 5. 组装为 `BidResponse.SeatBid`
 
 ## 运行
@@ -32,8 +35,8 @@ go run .
 
 运行后会依次执行两种模式并输出 JSON：
 
-- Direct Processing：每个 `Imp` 启 goroutine，imp 内部对候选并发（带 semaphore 限流）
-- Worker Pool Processing：将每个 `Imp` 封装为 job 提交到固定 worker 的有界队列中处理
+- Direct Processing：`AdServer` 通过进程内 Executor 做有界并发调度
+- Worker Pool Processing：编排模型一致，但任务提交到有界的 `WorkerPool`
 
 ## 测试
 

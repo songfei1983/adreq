@@ -8,20 +8,54 @@ import (
 	"time"
 
 	"github.com/songfei1983/adreq/bidder"
+	"github.com/songfei1983/adreq/filter"
+	"github.com/songfei1983/adreq/infra"
 	"github.com/songfei1983/adreq/model"
 	"github.com/songfei1983/adreq/server"
 )
 
 func main() {
-	directServer := server.NewAdServer(10)
+	directBudget, directSource, directProcessor := newDefaultDeps()
+	directServer := server.NewAdServer(directSource, directProcessor, server.Config{
+		MaxConcurrentImps:       10,
+		MaxConcurrentCandidates: 10,
+		Budget:                  directBudget,
+	})
 	runDemo(directServer, "Direct Processing", false)
 
 	pool := bidder.NewWorkerPool(5, 100)
 	defer pool.Close()
 
-	poolServer := server.NewAdServer(10)
+	poolBudget, poolSource, poolProcessor := newDefaultDeps()
+	poolServer := server.NewAdServer(poolSource, poolProcessor, server.Config{
+		MaxConcurrentImps:       10,
+		MaxConcurrentCandidates: 10,
+		Budget:                  poolBudget,
+	})
 	poolServer = poolServer.WithWorkerPool(pool)
 	runDemo(poolServer, "Worker Pool Processing", true)
+}
+
+func newDefaultDeps() (*infra.BudgetStore, server.CandidateSource, server.ImpProcessor) {
+	budget := infra.NewBudgetStore()
+	budget.Set("camp_0", 1000)
+	budget.Set("camp_1", 2000)
+	budget.Set("camp_2", 1500)
+
+	filters := []filter.Filter{
+		filter.NewFraudChecker(),
+		filter.NewSizeFilter(),
+		filter.NewFloorFilter(),
+		filter.NewTargetingFilter(),
+		filter.NewBudgetFilter(budget),
+		filter.NewFrequencyFilter(),
+	}
+
+	fc := filter.NewChain(filters)
+	defaultBidder := bidder.NewDefaultBidder()
+	processor := bidder.NewProcessor(defaultBidder, fc)
+	source := bidder.NewRandomCandidateSource(5 * time.Millisecond)
+	return budget, source, processor
 }
 
 func runDemo(s *server.AdServer, name string, usePool bool) {

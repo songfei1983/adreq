@@ -8,3 +8,13 @@ type Bid struct {
 	adm      string
 	Ext      BidExt `json:"ext,omitempty"`
 }
+
+type SpendIntent struct {
+	CampaignID string
+	Amount     float64
+}
+
+type CandidateDecision struct {
+	Bid   *Bid
+	Spend *SpendIntent
+}
