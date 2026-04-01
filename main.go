@@ -23,7 +23,7 @@ func main() {
 	})
 	runDemo(directServer, "Direct Processing", false)
 
-	pool := bidder.NewWorkerPool(5, 100)
+	pool := infra.NewWorkerPool(5, 100)
 	defer pool.Close()
 
 	poolBudget, poolSource, poolProcessor := newDefaultDeps()
@@ -52,9 +52,9 @@ func newDefaultDeps() (*infra.BudgetStore, server.CandidateSource, server.ImpPro
 	}
 
 	fc := filter.NewChain(filters)
-	defaultBidder := bidder.NewDefaultBidder()
+	defaultBidder := infra.NewDefaultBidder()
 	processor := bidder.NewProcessor(defaultBidder, fc)
-	source := bidder.NewRandomCandidateSource(5 * time.Millisecond)
+	source := infra.NewRandomCandidateSource(5 * time.Millisecond)
 	return budget, source, processor
 }
 

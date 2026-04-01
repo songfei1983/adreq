@@ -45,8 +45,8 @@ sequenceDiagram
   end
   S->>Fin: Finalize(decisions, budget)
   Fin-->>S: []SeatBid
-  end
   S-->>Caller: BidResponse
+```
 
 ## Worker Pool Processing
 
@@ -57,7 +57,7 @@ sequenceDiagram
   participant S as server.AdServer
   participant E as executor.Executor
   participant CS as CandidateSource
-  participant WP as bidder.WorkerPool
+  participant WP as infra.WorkerPool
   participant W as worker goroutine
   participant P as ImpProcessor
   participant FC as filter.Chain

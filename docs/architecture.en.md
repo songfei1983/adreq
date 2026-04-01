@@ -18,7 +18,7 @@ flowchart LR
 
   subgraph domain[Domain Layer]
     proc[bidder.Processor]
-    source[bidder.RandomCandidateSource]
+    source[infra.RandomCandidateSource]
     bid[bidder.Bidder]
   end
 
@@ -29,7 +29,7 @@ flowchart LR
   end
 
   subgraph infra[Infrastructure]
-    pool[bidder.WorkerPool]
+    pool[infra.WorkerPool]
     exec[executor]
     budget[infra.BudgetStore]
   end

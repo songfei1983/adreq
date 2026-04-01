@@ -29,9 +29,9 @@ func newTestServer(maxConcurrent int) *AdServer {
 	}
 
 	fc := filter.NewChain(filters)
-	defaultBidder := bidder.NewDefaultBidder()
+	defaultBidder := infra.NewDefaultBidder()
 	processor := bidder.NewProcessor(defaultBidder, fc)
-	source := bidder.NewRandomCandidateSource(0)
+	source := infra.NewRandomCandidateSource(0)
 	return NewAdServer(source, processor, Config{
 		MaxConcurrentImps:       maxConcurrent,
 		MaxConcurrentCandidates: maxConcurrent,
@@ -71,7 +71,7 @@ func TestHandleRequest(t *testing.T) {
 }
 
 func TestHandleRequestWithWorkerPool(t *testing.T) {
-	pool := bidder.NewWorkerPool(5, 100)
+	pool := infra.NewWorkerPool(5, 100)
 	defer pool.Close()
 
 	server := newTestServer(10)
