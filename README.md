@@ -27,6 +27,20 @@
 4. `BidFinalizer` 对每个 `Imp` 取 TopN 并执行预算扣减
 5. 组装为 `BidResponse.SeatBid`
 
+## 约定
+
+- 业务逻辑（Business Logic）与并发调度（Concurrency Orchestration）完全解耦。
+- 业务逻辑保持“纯净、可测试”：
+  - 不包含 `goroutine` / `channel` / `sync.*` / `select` 等并发元素
+  - 只处理单个任务：如单候选处理 `ImpProcessor.ProcessCandidate`
+- 并发调度由 Executor 统一管理（类似 Java 的 `ExecutorService`，但 Go idiomatic）：
+  - 负责任务提交、并发度控制、错误聚合、`context` 生命周期管理
+  - 避免深层嵌套 goroutine：所有并发启动点集中在 Executor 内部
+- 副作用（I/O、随机、延迟、状态存储、扣减等）外移到基础设施层（`infra`），通过接口注入到编排层（`server`）。
+- 可测试性优先：
+  - `ExecutorFactory` / `BidFinalizer` 可注入替身（fake/mock），从而让编排层可在“串行执行”下稳定单测
+  - 业务逻辑可独立单测，不依赖并发或运行时组件
+
 ## 运行
 
 ```bash
