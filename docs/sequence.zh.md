@@ -2,8 +2,8 @@
 
 本工程演示两种处理模式：
 
-- Direct：请求内对每个 `Imp` 起 goroutine；imp 内部对候选并发（受 `semaphore` 限制）
-- WorkerPool：将每个 `Imp` 封装为 job 提交到 `WorkerPool`，由固定 worker 执行；job 内部同样会触发候选并发
+- Direct：`server.AdServer` 通过 Executor 统一调度并发（受并发度限制）来并行拉取候选与评估候选；业务逻辑按“单任务同步执行”保持纯净
+- WorkerPool：编排模型一致，但 Executor 把任务提交到有界的 `WorkerPool`
 
 ## Direct Processing
 
@@ -12,34 +12,39 @@ sequenceDiagram
   autonumber
   participant Caller as main/runDemo
   participant S as server.AdServer
-  participant P as bidder.Processor
+  participant E as executor.Executor
+  participant CS as CandidateSource
+  participant P as ImpProcessor
   participant FC as filter.Chain
   participant F as filter.Filter*
   participant B as bidder.Bidder
+  participant Fin as BidFinalizer
 
   Caller->>S: HandleRequest(ctx, BidRequest)
   loop each Imp
-    par goroutine per Imp
-      S->>P: ProcessImp(reqCtx, imp)
-      P->>P: fetchCandidates()
-      loop each CandidateAd
-        par candidate goroutine (semaphore limited)
-          P->>FC: Apply(ctx, ad)
-          loop each filter
-            FC->>F: Filter(ctx, ad)
-          end
-          alt passed
-            P->>B: Bid(ctx, ad)
-            B-->>P: Bid
-          else rejected
-            P-->>P: drop
-          end
-        end
-      end
-      P-->>S: []*Bid
-      S-->>S: topBids + append SeatBid
-    end
+    S->>E: Go(拉取候选)
+    E->>CS: FetchCandidates(reqCtx, imp)
+    CS-->>E: []CandidateAd
+    E-->>S: candidates
   end
+  loop each CandidateAd
+    S->>E: Go(评估候选)
+    E->>P: ProcessCandidate(reqCtx, ad)
+    P->>FC: Apply(ctx, ad)
+    loop each filter
+      FC->>F: Filter(ctx, ad)
+    end
+    alt passed
+      P->>B: Bid(ctx, ad)
+      B-->>P: Bid
+      P-->>E: CandidateDecision
+    else rejected
+      P-->>E: nil
+    end
+    E-->>S: CandidateDecision
+  end
+  S->>Fin: Finalize(decisions, budget)
+  Fin-->>S: []SeatBid
   S-->>Caller: BidResponse
 ```
 
@@ -50,25 +55,39 @@ sequenceDiagram
   autonumber
   participant Caller as main/runDemo
   participant S as server.AdServer
-  participant WP as bidder.WorkerPool
+  participant E as executor.Executor
+  participant CS as CandidateSource
+  participant WP as infra.WorkerPool
   participant W as worker goroutine
-  participant P as bidder.Processor
+  participant P as ImpProcessor
   participant FC as filter.Chain
   participant B as bidder.Bidder
+  participant Fin as BidFinalizer
 
   Caller->>S: HandleRequestWithPool(ctx, BidRequest)
   loop each Imp
-    S->>WP: Submit(reqCtx, job)
+    S->>E: Go(拉取候选)
+    E->>WP: Submit(reqCtx, job)
   end
-  loop each job
+  loop each fetch job
     WP-->>W: dispatch job
-    W->>S: job(reqCtx)
-    S->>P: ProcessImp(reqCtx, imp)
+    W->>CS: FetchCandidates(reqCtx, imp)
+    CS-->>W: []CandidateAd
+    W-->>S: candidates
+  end
+  loop each CandidateAd
+    S->>E: Go(评估候选)
+    E->>WP: Submit(reqCtx, job)
+  end
+  loop each candidate job
+    WP-->>W: dispatch job
+    W->>P: ProcessCandidate(reqCtx, ad)
     P->>FC: Apply(ctx, ad)
     P->>B: Bid(ctx, ad)
-    P-->>S: []*Bid
-    S-->>S: topBids + append SeatBid
+    P-->>W: CandidateDecision
+    W-->>S: CandidateDecision
   end
+  S->>Fin: Finalize(decisions, budget)
+  Fin-->>S: []SeatBid
   S-->>Caller: BidResponse
 ```
-

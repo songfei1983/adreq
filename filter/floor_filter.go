@@ -17,10 +17,8 @@ func (f *FloorFilter) Name() string {
 }
 
 func (f *FloorFilter) Filter(ctx context.Context, ad *model.CandidateAd) (bool, error) {
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 
 	return ad.PassesFloor(), nil

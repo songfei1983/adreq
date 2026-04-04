@@ -3,7 +3,7 @@
 This repository is a demo ad-request (bid request) processing pipeline. By responsibility, it can be viewed as:
 
 - Application service: `server` (request orchestration, concurrency scheduling, response assembly)
-- Domain service: `bidder` (candidate processing, filtering, bidding, concurrency limiting)
+- Domain service: `bidder` (single-candidate processing, filtering, bidding)
 - Policies/rules: `filter` (filter chain, budget, individual filters)
 - Domain model: `model` (request/response and intermediate objects)
 
@@ -18,17 +18,20 @@ flowchart LR
 
   subgraph domain[Domain Layer]
     proc[bidder.Processor]
+    source[infra.RandomCandidateSource]
     bid[bidder.Bidder]
   end
 
   subgraph policy[Policies/Rules]
     chain[filter.Chain]
     f1[filter.Filter...]
-    cache[filter.BudgetCache]
+    bf[filter.BudgetFilter]
   end
 
   subgraph infra[Infrastructure]
-    pool[bidder.WorkerPool]
+    pool[infra.WorkerPool]
+    exec[executor]
+    budget[infra.BudgetStore]
   end
 
   subgraph model[Domain Model]
@@ -39,22 +42,24 @@ flowchart LR
 
   main --> srv
   srv --> req
-  srv -->|Direct| proc
+  srv --> exec
+  srv --> source
+  srv --> proc
   srv -->|WithWorkerPool| pool
   pool --> srv
   proc --> chain
   proc --> bid
   proc --> cand
   chain --> f1
-  f1 --> cache
+  chain --> bf
+  bf --> budget
   proc --> br
   srv --> br
 ```
 
 ## Layer notes
 
-- `server`: orchestration + aggregation only. For each `Imp`, it calls `processor.ProcessImp`, selects top-N bids, then assembles `BidResponse`.
-- `bidder`: generates candidates (random simulation in this demo), runs `filter.Chain`, calls `Bidder` for bidding, and limits candidate concurrency via `semaphore`.
-- `filter`: executes filters sequentially via `Chain.Apply`; budget is simulated via `BudgetCache` deduction.
+- `server`: orchestration + aggregation only. It uses an Executor to fan out candidate fetch and candidate evaluation tasks, then finalizes bids per `Imp`.
+- `bidder`: implements single-candidate processing (`ProcessCandidate`) and calls `filter.Chain` + `Bidder`.
+- `filter`: executes filters sequentially via `Chain.Apply`; budget check reads from `infra.BudgetStore`. Budget deduction is applied during finalization.
 - `model`: pure data structures plus small domain helpers (e.g. `CandidateAd.PassesFloor`).
-

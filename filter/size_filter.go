@@ -7,13 +7,10 @@ import (
 )
 
 type SizeFilter struct {
-	allowedSizes map[string]map[string]bool
 }
 
 func NewSizeFilter() *SizeFilter {
-	return &SizeFilter{
-		allowedSizes: make(map[string]map[string]bool),
-	}
+	return &SizeFilter{}
 }
 
 func (s *SizeFilter) Name() string {
@@ -21,10 +18,8 @@ func (s *SizeFilter) Name() string {
 }
 
 func (s *SizeFilter) Filter(ctx context.Context, ad *model.CandidateAd) (bool, error) {
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 
 	for _, attr := range ad.TargetAttrs {
@@ -33,11 +28,4 @@ func (s *SizeFilter) Filter(ctx context.Context, ad *model.CandidateAd) (bool, e
 		}
 	}
 	return true, nil
-}
-
-func (s *SizeFilter) AddAllowedSize(impID, size string) {
-	if s.allowedSizes[impID] == nil {
-		s.allowedSizes[impID] = make(map[string]bool)
-	}
-	s.allowedSizes[impID][size] = true
 }

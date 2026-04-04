@@ -1,4 +1,4 @@
-package bidder
+package infra
 
 import (
 	"context"
@@ -14,10 +14,12 @@ func NewDefaultBidder() *DefaultBidder {
 }
 
 func (b *DefaultBidder) Bid(ctx context.Context, ad *model.CandidateAd) (*model.Bid, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(2 * time.Millisecond):
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	time.Sleep(2 * time.Millisecond)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	return &model.Bid{

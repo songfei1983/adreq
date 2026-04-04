@@ -1,4 +1,4 @@
-package bidder
+package infra
 
 import (
 	"context"
@@ -12,6 +12,11 @@ type WorkerPool struct {
 	mu         sync.RWMutex
 	closed     bool
 	closeOnce  sync.Once
+}
+
+type jobRequest struct {
+	ctx context.Context
+	job func(context.Context)
 }
 
 func NewWorkerPool(numWorkers, queueSize int) *WorkerPool {
@@ -39,9 +44,9 @@ func (wp *WorkerPool) worker() {
 	}
 }
 
-func (wp *WorkerPool) Submit(ctx context.Context, job Job) bool {
-	wp.mu.RLock()
-	defer wp.mu.RUnlock()
+func (wp *WorkerPool) Submit(ctx context.Context, job func(context.Context)) bool {
+	wp.mu.Lock()
+	defer wp.mu.Unlock()
 
 	if wp.closed {
 		return false
@@ -57,10 +62,11 @@ func (wp *WorkerPool) Submit(ctx context.Context, job Job) bool {
 func (wp *WorkerPool) Close() {
 	wp.closeOnce.Do(func() {
 		wp.mu.Lock()
-		defer wp.mu.Unlock()
-
 		wp.closed = true
 		close(wp.jobQueue)
+		wp.mu.Unlock()
+
+		wp.wg.Wait()
 	})
 }
 

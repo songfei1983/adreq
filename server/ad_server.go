@@ -2,45 +2,137 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
-	"github.com/songfei1983/adreq/bidder"
-	"github.com/songfei1983/adreq/filter"
+	"github.com/songfei1983/adreq/executor"
 	"github.com/songfei1983/adreq/model"
 )
 
-type AdServer struct {
-	processor      ImpProcessor
-	pool           *bidder.WorkerPool
-	requestTimeout time.Duration
-	maxBidsPerImp  int
+type ExecutorFactory interface {
+	NewGroup(ctx context.Context, maxConcurrent int) executor.Executor
+	NewPool(ctx context.Context, pool executor.Pool) executor.Executor
 }
 
-func NewAdServer(maxConcurrent int) *AdServer {
-	budgetCache := filter.NewBudgetCache()
-	budgetCache.Set("camp_0", 1000)
-	budgetCache.Set("camp_1", 2000)
-	budgetCache.Set("camp_2", 1500)
+type defaultExecutorFactory struct{}
 
-	filters := []filter.Filter{
-		filter.NewFraudChecker(),
-		filter.NewSizeFilter(),
-		filter.NewFloorFilter(),
-		filter.NewTargetingFilter(),
-		filter.NewBudgetFilter(budgetCache),
-		filter.NewFrequencyFilter(),
+func (defaultExecutorFactory) NewGroup(ctx context.Context, maxConcurrent int) executor.Executor {
+	return executor.NewGroup(ctx, maxConcurrent)
+}
+
+func (defaultExecutorFactory) NewPool(ctx context.Context, pool executor.Pool) executor.Executor {
+	return executor.NewPoolExecutor(ctx, pool)
+}
+
+type Config struct {
+	RequestTimeout          time.Duration
+	MaxBidsPerImp           int
+	MaxConcurrentImps       int
+	MaxConcurrentCandidates int
+	Budget                  BudgetDeductor
+	Finalizer               BidFinalizer
+	ExecutorFactory         ExecutorFactory
+}
+
+type BudgetDeductor interface {
+	Deduct(campaignID string, amount float64) bool
+}
+
+type BidFinalizer interface {
+	Finalize(bidsByIdx [][]*model.CandidateDecision, maxBidsPerImp int) ([]model.SeatBid, error)
+}
+
+type defaultBidFinalizer struct {
+	budget BudgetDeductor
+}
+
+func (f defaultBidFinalizer) Finalize(bidsByIdx [][]*model.CandidateDecision, maxBidsPerImp int) ([]model.SeatBid, error) {
+	out := make([]model.SeatBid, 0, len(bidsByIdx))
+	for i := range bidsByIdx {
+		decisions := bidsByIdx[i]
+		if len(decisions) == 0 {
+			continue
+		}
+
+		sorted := make([]*model.CandidateDecision, 0, len(decisions))
+		for _, d := range decisions {
+			if d == nil || d.Bid == nil {
+				continue
+			}
+			sorted = append(sorted, d)
+		}
+		if len(sorted) == 0 {
+			continue
+		}
+
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Bid.Price > sorted[j].Bid.Price
+		})
+
+		selected := make([]model.Bid, 0, maxBidsPerImp)
+		for _, d := range sorted {
+			if maxBidsPerImp > 0 && len(selected) >= maxBidsPerImp {
+				break
+			}
+			if f.budget != nil && d.Spend != nil {
+				if !f.budget.Deduct(d.Spend.CampaignID, d.Spend.Amount) {
+					continue
+				}
+			}
+			selected = append(selected, *d.Bid)
+		}
+
+		if len(selected) == 0 {
+			continue
+		}
+		out = append(out, model.SeatBid{Bid: selected})
 	}
+	return out, nil
+}
 
-	fc := filter.NewChain(filters)
-	defaultBidder := bidder.NewDefaultBidder()
-	processor := bidder.NewProcessor(defaultBidder, fc, maxConcurrent)
+type AdServer struct {
+	source            CandidateSource
+	processor         ImpProcessor
+	pool              executor.Pool
+	execFactory       ExecutorFactory
+	requestTimeout    time.Duration
+	maxBidsPerImp     int
+	maxConcurrent     int
+	maxCandConcurrent int
+	finalizer         BidFinalizer
+}
 
+func NewAdServer(source CandidateSource, processor ImpProcessor, cfg Config) *AdServer {
+	if source == nil {
+		panic("nil source")
+	}
+	if processor == nil {
+		panic("nil processor")
+	}
+	if cfg.RequestTimeout <= 0 {
+		cfg.RequestTimeout = 100 * time.Millisecond
+	}
+	if cfg.MaxBidsPerImp <= 0 {
+		cfg.MaxBidsPerImp = 2
+	}
+	if cfg.ExecutorFactory == nil {
+		cfg.ExecutorFactory = defaultExecutorFactory{}
+	}
+	if cfg.Finalizer == nil {
+		cfg.Finalizer = defaultBidFinalizer{budget: cfg.Budget}
+	}
 	return &AdServer{
-		processor:      processor,
-		requestTimeout: 100 * time.Millisecond,
-		maxBidsPerImp:  2,
+		source:            source,
+		processor:         processor,
+		execFactory:       cfg.ExecutorFactory,
+		requestTimeout:    cfg.RequestTimeout,
+		maxBidsPerImp:     cfg.MaxBidsPerImp,
+		maxConcurrent:     cfg.MaxConcurrentImps,
+		maxCandConcurrent: cfg.MaxConcurrentCandidates,
+		finalizer:         cfg.Finalizer,
 	}
 }
 
@@ -56,44 +148,68 @@ func (s *AdServer) HandleRequest(ctx context.Context, req *model.BidRequest) (*m
 		return response, nil
 	}
 
-	var wg sync.WaitGroup
-	seatBids := make([][]model.Bid, len(req.Imp))
-
-	for i := range req.Imp {
-		imp := &req.Imp[i]
-		wg.Add(1)
-		go func(idx int, i *model.Imp) {
-			defer wg.Done()
-
-			select {
-			case <-reqCtx.Done():
-				return
-			default:
-			}
-
-			bids, err := s.processor.ProcessImp(reqCtx, i)
-			if err != nil {
-				return
-			}
-
-			top := topBids(bids, s.maxBidsPerImp)
-			seatBids[idx] = toBidValues(top)
-		}(i, imp)
+	maxConcurrent := s.maxConcurrent
+	if maxConcurrent <= 0 {
+		maxConcurrent = len(req.Imp)
 	}
 
-	wg.Wait()
+	fetchExec := s.execFactory.NewGroup(reqCtx, maxConcurrent)
+	candidatesByIdx := make([][]model.CandidateAd, len(req.Imp))
+	for i := range req.Imp {
+		idx := i
+		imp := req.Imp[i]
+		fetchExec.Go(func(ctx context.Context) error {
+			candidates, err := s.source.FetchCandidates(ctx, &imp)
+			if err != nil {
+				return err
+			}
+			candidatesByIdx[idx] = candidates
+			return nil
+		})
+	}
 
-	if err := reqCtx.Err(); err != nil {
+	if err := fetchExec.Wait(); err != nil {
 		return nil, err
 	}
 
-	for _, bids := range seatBids {
-		if len(bids) == 0 {
-			continue
-		}
-		response.SeatBid = append(response.SeatBid, model.SeatBid{Bid: bids})
+	maxCandConcurrent := s.maxCandConcurrent
+	if maxCandConcurrent <= 0 {
+		maxCandConcurrent = maxConcurrent
 	}
 
+	candExec := s.execFactory.NewGroup(reqCtx, maxCandConcurrent)
+	decisionsByIdx := make([][]*model.CandidateDecision, len(req.Imp))
+	decisionsMu := make([]sync.Mutex, len(req.Imp))
+
+	for i := range candidatesByIdx {
+		impIdx := i
+		for _, candidate := range candidatesByIdx[impIdx] {
+			ad := candidate
+			candExec.Go(func(ctx context.Context) error {
+				decision, err := s.processor.ProcessCandidate(ctx, ad)
+				if err != nil {
+					return err
+				}
+				if decision == nil {
+					return nil
+				}
+				decisionsMu[impIdx].Lock()
+				decisionsByIdx[impIdx] = append(decisionsByIdx[impIdx], decision)
+				decisionsMu[impIdx].Unlock()
+				return nil
+			})
+		}
+	}
+
+	if err := candExec.Wait(); err != nil {
+		return nil, err
+	}
+
+	seatBids, err := s.finalizer.Finalize(decisionsByIdx, s.maxBidsPerImp)
+	if err != nil {
+		return nil, err
+	}
+	response.SeatBid = append(response.SeatBid, seatBids...)
 	return response, nil
 }
 
@@ -104,7 +220,7 @@ func (s *AdServer) Shutdown() {
 	}
 }
 
-func (s *AdServer) WithWorkerPool(pool *bidder.WorkerPool) *AdServer {
+func (s *AdServer) WithWorkerPool(pool executor.Pool) *AdServer {
 	s.pool = pool
 	return s
 }
@@ -121,50 +237,67 @@ func (s *AdServer) HandleRequestWithPool(ctx context.Context, req *model.BidRequ
 		ID: req.ID,
 	}
 
-	var wg sync.WaitGroup
-	seatBids := make([][]model.Bid, len(req.Imp))
+	if len(req.Imp) == 0 {
+		return response, nil
+	}
 
+	fetchExec := s.execFactory.NewPool(reqCtx, s.pool)
+	candidatesByIdx := make([][]model.CandidateAd, len(req.Imp))
 	for i := range req.Imp {
 		idx := i
 		imp := req.Imp[i]
-		wg.Add(1)
-
-		job := bidder.Job(func(_ context.Context) {
-			defer wg.Done()
-
-			select {
-			case <-reqCtx.Done():
-				return
-			default:
-			}
-
-			bids, err := s.processor.ProcessImp(reqCtx, &imp)
+		fetchExec.Go(func(ctx context.Context) error {
+			candidates, err := s.source.FetchCandidates(ctx, &imp)
 			if err != nil {
-				return
+				return err
 			}
-
-			top := topBids(bids, s.maxBidsPerImp)
-			seatBids[idx] = toBidValues(top)
+			candidatesByIdx[idx] = candidates
+			return nil
 		})
-
-		if !s.pool.Submit(reqCtx, job) {
-			wg.Done()
-			return nil, fmt.Errorf("pool full, request rejected")
-		}
 	}
 
-	wg.Wait()
-
-	if err := reqCtx.Err(); err != nil {
+	if err := fetchExec.Wait(); err != nil {
+		if errors.Is(err, executor.ErrRejected) {
+			return nil, fmt.Errorf("pool full, request rejected")
+		}
 		return nil, err
 	}
 
-	for _, bids := range seatBids {
-		if len(bids) == 0 {
-			continue
+	candExec := s.execFactory.NewPool(reqCtx, s.pool)
+	decisionsByIdx := make([][]*model.CandidateDecision, len(req.Imp))
+	decisionsMu := make([]sync.Mutex, len(req.Imp))
+
+	for i := range candidatesByIdx {
+		impIdx := i
+		for _, candidate := range candidatesByIdx[impIdx] {
+			ad := candidate
+			candExec.Go(func(ctx context.Context) error {
+				decision, err := s.processor.ProcessCandidate(ctx, ad)
+				if err != nil {
+					return err
+				}
+				if decision == nil {
+					return nil
+				}
+				decisionsMu[impIdx].Lock()
+				decisionsByIdx[impIdx] = append(decisionsByIdx[impIdx], decision)
+				decisionsMu[impIdx].Unlock()
+				return nil
+			})
 		}
-		response.SeatBid = append(response.SeatBid, model.SeatBid{Bid: bids})
 	}
 
+	if err := candExec.Wait(); err != nil {
+		if errors.Is(err, executor.ErrRejected) {
+			return nil, fmt.Errorf("pool full, request rejected")
+		}
+		return nil, err
+	}
+
+	seatBids, err := s.finalizer.Finalize(decisionsByIdx, s.maxBidsPerImp)
+	if err != nil {
+		return nil, err
+	}
+	response.SeatBid = append(response.SeatBid, seatBids...)
 	return response, nil
 }

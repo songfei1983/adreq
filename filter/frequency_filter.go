@@ -2,14 +2,11 @@ package filter
 
 import (
 	"context"
-	"sync"
 
 	"github.com/songfei1983/adreq/model"
 )
 
-type FrequencyFilter struct {
-	counts sync.Map
-}
+type FrequencyFilter struct{}
 
 func NewFrequencyFilter() *FrequencyFilter {
 	return &FrequencyFilter{}
@@ -20,10 +17,8 @@ func (f *FrequencyFilter) Name() string {
 }
 
 func (f *FrequencyFilter) Filter(ctx context.Context, ad *model.CandidateAd) (bool, error) {
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 
 	return true, nil
