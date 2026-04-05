@@ -30,6 +30,7 @@ func (defaultExecutorFactory) NewPool(ctx context.Context, pool executor.Pool) e
 type Config struct {
 	RequestTimeout          time.Duration
 	MaxBidsPerImp           int
+	MaxConcurrentRequests   int
 	MaxConcurrentImps       int
 	MaxConcurrentCandidates int
 	Budget                  BudgetDeductor
@@ -100,10 +101,13 @@ type AdServer struct {
 	execFactory       ExecutorFactory
 	requestTimeout    time.Duration
 	maxBidsPerImp     int
+	reqSem            chan struct{}
 	maxConcurrent     int
 	maxCandConcurrent int
 	finalizer         BidFinalizer
 }
+
+var ErrOverloaded = errors.New("server: overloaded")
 
 func NewAdServer(source CandidateSource, processor ImpProcessor, cfg Config) *AdServer {
 	if source == nil {
@@ -124,12 +128,17 @@ func NewAdServer(source CandidateSource, processor ImpProcessor, cfg Config) *Ad
 	if cfg.Finalizer == nil {
 		cfg.Finalizer = defaultBidFinalizer{budget: cfg.Budget}
 	}
+	var reqSem chan struct{}
+	if cfg.MaxConcurrentRequests > 0 {
+		reqSem = make(chan struct{}, cfg.MaxConcurrentRequests)
+	}
 	return &AdServer{
 		source:            source,
 		processor:         processor,
 		execFactory:       cfg.ExecutorFactory,
 		requestTimeout:    cfg.RequestTimeout,
 		maxBidsPerImp:     cfg.MaxBidsPerImp,
+		reqSem:            reqSem,
 		maxConcurrent:     cfg.MaxConcurrentImps,
 		maxCandConcurrent: cfg.MaxConcurrentCandidates,
 		finalizer:         cfg.Finalizer,
@@ -139,6 +148,15 @@ func NewAdServer(source CandidateSource, processor ImpProcessor, cfg Config) *Ad
 func (s *AdServer) HandleRequest(ctx context.Context, req *model.BidRequest) (*model.BidResponse, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, s.requestTimeout)
 	defer cancel()
+
+	if s.reqSem != nil {
+		select {
+		case s.reqSem <- struct{}{}:
+			defer func() { <-s.reqSem }()
+		default:
+			return nil, ErrOverloaded
+		}
+	}
 
 	response := &model.BidResponse{
 		ID: req.ID,
@@ -232,6 +250,15 @@ func (s *AdServer) HandleRequestWithPool(ctx context.Context, req *model.BidRequ
 
 	reqCtx, cancel := context.WithTimeout(ctx, s.requestTimeout)
 	defer cancel()
+
+	if s.reqSem != nil {
+		select {
+		case s.reqSem <- struct{}{}:
+			defer func() { <-s.reqSem }()
+		default:
+			return nil, ErrOverloaded
+		}
+	}
 
 	response := &model.BidResponse{
 		ID: req.ID,
