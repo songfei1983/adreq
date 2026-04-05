@@ -59,7 +59,7 @@ flowchart LR
 
 ## Layer notes
 
-- `server`: orchestration + aggregation only. It uses an Executor to fan out candidate fetch and candidate evaluation tasks, then finalizes bids per `Imp`.
+- `server`: orchestration + aggregation only. It uses an Executor to fan out candidate fetch and candidate evaluation tasks, then finalizes bids per `Imp`; optionally caps in-flight requests via `MaxConcurrentRequests` with admission mode (reject|block).
 - `bidder`: implements single-candidate processing (`ProcessCandidate`) and calls `filter.Chain` + `Bidder`.
 - `filter`: executes filters sequentially via `Chain.Apply`; budget check reads from `infra.BudgetStore`. Budget deduction is applied during finalization.
 - `model`: pure data structures plus small domain helpers (e.g. `CandidateAd.PassesFloor`).

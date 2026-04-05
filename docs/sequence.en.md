@@ -21,6 +21,9 @@ sequenceDiagram
   participant Fin as BidFinalizer
 
   Caller->>S: HandleRequest(ctx, BidRequest)
+  opt MaxConcurrentRequests enabled
+    S->>S: request admission (reject|block)
+  end
   loop each Imp
     S->>E: Go(fetch candidates)
     E->>CS: FetchCandidates(reqCtx, imp)
@@ -65,6 +68,9 @@ sequenceDiagram
   participant Fin as BidFinalizer
 
   Caller->>S: HandleRequestWithPool(ctx, BidRequest)
+  opt MaxConcurrentRequests enabled
+    S->>S: request admission (reject|block)
+  end
   loop each Imp
     S->>E: Go(fetch candidates)
     E->>WP: Submit(reqCtx, job)

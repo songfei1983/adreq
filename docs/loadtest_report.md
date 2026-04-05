@@ -18,6 +18,14 @@ WorkerPool（sweep）：
 go run ./cmd/loadtest -mode=pool -sweep -duration=1s -imps=6 -cands=40 -concurrency-list=32,64,128 -pool-workers-list=16 -pool-queue-list=64,1024,64k
 ```
 
+## 相关参数（与当前代码一致）
+
+- `-sweep`：输出 CSV + 两类“曲线点”汇总（success_rate_curve / throughput_latency_line）
+- `-pool-workers[-list]` / `-pool-queue[-list]`：WorkerPool 的 worker 数与队列容量（支持 `64k` 单位）
+- `-max-requests`：请求级别最大并发在途数（0 关闭）
+- `-admission=reject|block`：`max-requests` 开启时的策略（快速拒绝或排队等待直到超时）
+- `-work-iters` / `-work-us`：为每个 candidate 注入 CPU/睡眠负载，用于构造 CPU-bound 或 latency-bound 场景
+
 ## 原始输出
 
 ### Direct

@@ -1,12 +1,12 @@
 # Direct / WorkerPool 高 QPS 总结
 
-本文总结在 **HTTP 协议、无外部 RPC、目标 P99 < 50ms、单 Pod 64 核** 的假设下，Direct（进程内 Executor）与 WorkerPool（有界队列 + 固定 worker）两种并发调度方式的优缺点与容量估算方法，并给出压测落地建议。
+本文基于本仓库的实现（`server.AdServer`）与内置的 in-process 压测工具（`cmd/loadtest` / `go test -bench`），总结 Direct（进程内 Executor）与 WorkerPool（有界队列 + 固定 worker）两种并发调度方式的优缺点与容量估算方法，并给出压测落地建议。
 
 ## 结论先行
 
 - 想在 **P99 < 50ms** 的同时冲非常高 QPS，关键不在平均延迟，而在 **排队控制 + 抖动控制（GC/调度/分配/锁）**。
 - 在高 QPS 稳态运行下，**WorkerPool/有界执行器更容易把尾延迟控制住**（背压清晰、goroutine 数量稳定）。
-- **百万 QPS 并非纯理论不可达**，但对每请求 CPU 时间、内存分配、payload 大小、网络栈开销的要求极端苛刻；在常规 `net/http + JSON` 路径下，更现实的稳定区间通常是 **几十万 QPS量级**，具体取决于 payload/分配/是否 TLS/sidecar 等。
+- **百万 QPS 并非纯理论不可达**，但对每请求 CPU 时间、内存分配、payload 大小、网络栈开销的要求极端苛刻；在常规 `net/http + JSON` 路径下，更现实的稳定区间通常是 **几十万 QPS量级**（具体取决于 payload/分配/是否 TLS/sidecar 等）。本仓库内置压测为 in-process（不含 HTTP/JSON），因此测出来的数值只适用于“业务与并发模型”对比，不等同于端到端 HTTP QPS。
 
 ## Direct vs WorkerPool：优缺点
 
@@ -29,6 +29,14 @@
 - 缺点
   - 饱和时会排队，P99 很容易被“队列等待”拉高。
   - 队列策略不当会产生 head-of-line blocking（例如慢任务拖住快任务）。
+
+## 对应到当前代码的“背压/排队”开关
+
+- 请求级别在途上限（网关模型）：`Config.MaxConcurrentRequests`
+  - `RequestAdmissionReject`：超限立即返回 `server: overloaded`（快速失败，保护尾延迟）
+  - `RequestAdmissionBlock`：超限进入等待队列，直到获取 slot 或请求超时（更贴近网关排队）
+- WorkerPool 级别背压：`infra.WorkerPool` 的 `queueSize` + `numWorkers`
+  - 队列满时 `Submit` 直接失败，最终表现为请求失败（pool full / rejected）
 
 ## 容量估算：两个硬约束
 
@@ -73,7 +81,10 @@
 
 ## 推荐的压测落地方法（获得真实 QPS 上限）
 
-- 使用 **wrk2（恒定速率）** 或 vegeta 进行压测，关注：
+- 本仓库提供两套 in-process 工具用于对比并发模型：
+  - Benchmark：`go test ./server -run '^$' -bench 'BenchmarkHandleRequest_' -benchmem`
+  - Loadtest：`go run ./cmd/loadtest ...`，支持 `-sweep` 输出 CSV 与曲线点（success_rate/ok_rps/p95）
+- 若要获得端到端真实上限（含 HTTP/JSON/网络/TLS/sidecar），再使用 **wrk2（恒定速率）** 或 vegeta 压测你自己的 HTTP 服务实现，关注：
   - 吞吐、P50/P90/P99、错误率（429/503/timeout）
   - pprof：CPU/allocs/heap/GC pause
 - 分组对比：
@@ -82,4 +93,3 @@
 - 对稳定性目标（P99<50ms）建议：
   - 设定明确的并发上限、队列容量、超时与拒绝策略
   - 压测时逐步升压，找到“刚好不爆 P99”的稳定点作为上限参考
-

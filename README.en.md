@@ -46,6 +46,26 @@ go test ./...
 
 Tests are mainly in: [server/server_test.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/server_test.go)
 
+## Performance
+
+Benchmarks (Direct vs WorkerPool, reports ns/op, allocs/op, %rejected): [server/bench_test.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/bench_test.go)
+
+```bash
+go test ./server -run '^$' -bench 'BenchmarkHandleRequest_' -benchmem
+```
+
+Load test (in-process, no HTTP): [cmd/loadtest](file:///Users/songfei/Develop/github.com/songfei1983/adreq/cmd/loadtest/)
+
+```bash
+go run ./cmd/loadtest -mode=pool -sweep -duration=2s -imps=6 -cands=40 \
+  -concurrency-list=32,64,128 -pool-workers-list=16 -pool-queue-list=64,1024,64k
+```
+
+Request admission (cap in-flight requests):
+
+- `-max-requests=N` enables request-level concurrency cap
+- `-admission=reject|block` chooses overflow strategy: fast reject or wait-for-slot until timeout
+
 ## Notes
 
 - This repository focuses on demonstrating the pipeline and concurrency model; filter implementations are mostly placeholders.

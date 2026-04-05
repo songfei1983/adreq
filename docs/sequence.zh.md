@@ -21,6 +21,9 @@ sequenceDiagram
   participant Fin as BidFinalizer
 
   Caller->>S: HandleRequest(ctx, BidRequest)
+  opt MaxConcurrentRequests 开启
+    S->>S: 请求准入（reject|block）
+  end
   loop each Imp
     S->>E: Go(拉取候选)
     E->>CS: FetchCandidates(reqCtx, imp)
@@ -65,6 +68,9 @@ sequenceDiagram
   participant Fin as BidFinalizer
 
   Caller->>S: HandleRequestWithPool(ctx, BidRequest)
+  opt MaxConcurrentRequests 开启
+    S->>S: 请求准入（reject|block）
+  end
   loop each Imp
     S->>E: Go(拉取候选)
     E->>WP: Submit(reqCtx, job)

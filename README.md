@@ -60,6 +60,26 @@ go test ./...
 
 当前测试主要覆盖 server 的基本处理流程与并发场景：[server/server_test.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/server_test.go)
 
+## 性能测试
+
+基准测试（Direct vs WorkerPool，对比 ns/op、allocs/op、%rejected）：见 [server/bench_test.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/bench_test.go)
+
+```bash
+go test ./server -run '^$' -bench 'BenchmarkHandleRequest_' -benchmem
+```
+
+负荷测试（in-process，不走 HTTP）：见 [cmd/loadtest](file:///Users/songfei/Develop/github.com/songfei1983/adreq/cmd/loadtest/)
+
+```bash
+go run ./cmd/loadtest -mode=pool -sweep -duration=2s -imps=6 -cands=40 \
+  -concurrency-list=32,64,128 -pool-workers-list=16 -pool-queue-list=64,1024,64k
+```
+
+入口限流（最大并发在途请求）：
+
+- `-max-requests=N` 开启请求级别并发上限
+- `-admission=reject|block` 控制超限策略：快速拒绝或排队等待直到超时
+
 ## 说明与已知问题
 
 - 本工程以演示链路与并发模型为主，过滤器逻辑整体偏示例/占位实现。
