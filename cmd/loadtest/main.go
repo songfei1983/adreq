@@ -86,6 +86,7 @@ type runCfg struct {
 	maxImpConc  int
 	maxCandConc int
 	maxRequests int
+	admission   server.RequestAdmissionMode
 	poolWorkers int
 	poolQueue   int
 	timeout     time.Duration
@@ -161,6 +162,7 @@ func runOnce(cfg runCfg, req *model.BidRequest, candidates map[string][]model.Ca
 		RequestTimeout:          cfg.timeout,
 		MaxBidsPerImp:           2,
 		MaxConcurrentRequests:   cfg.maxRequests,
+		RequestAdmissionMode:    cfg.admission,
 		MaxConcurrentImps:       cfg.maxImpConc,
 		MaxConcurrentCandidates: cfg.maxCandConc,
 	})
@@ -271,6 +273,7 @@ func main() {
 		imps          = flag.Int("imps", 6, "imps per request")
 		candsPerImp   = flag.Int("cands", 40, "candidates per imp")
 		maxRequests   = flag.Int("max-requests", 0, "max concurrent in-flight requests (0 disables)")
+		admission     = flag.String("admission", "reject", "request admission mode when max-requests enabled: reject|block")
 		maxImpConc    = flag.Int("max-imp-conc", 6, "direct-mode max concurrent imps (per request)")
 		maxCandConc   = flag.Int("max-cand-conc", 6, "direct-mode max concurrent candidates (per request)")
 		poolWorkers   = flag.Int("pool-workers", 4*procs, "pool workers")
@@ -307,6 +310,17 @@ func main() {
 		*sampleLatency = 0
 	}
 
+	var admissionMode server.RequestAdmissionMode
+	switch strings.ToLower(strings.TrimSpace(*admission)) {
+	case "", "reject":
+		admissionMode = server.RequestAdmissionReject
+	case "block":
+		admissionMode = server.RequestAdmissionBlock
+	default:
+		fmt.Fprintf(os.Stderr, "invalid -admission=%s (want reject|block)\n", *admission)
+		os.Exit(2)
+	}
+
 	req := benchutil.MakeRequest("load_req", *imps, 0)
 	candidates := benchutil.MakeCandidatesByImp(req.Imp, *candsPerImp)
 
@@ -319,6 +333,7 @@ func main() {
 		maxImpConc:  *maxImpConc,
 		maxCandConc: *maxCandConc,
 		maxRequests: *maxRequests,
+		admission:   admissionMode,
 		poolWorkers: *poolWorkers,
 		poolQueue:   *poolQueue,
 		timeout:     *timeout,
