@@ -10,3 +10,7 @@
 - Summary / 总结： [performance_summary.zh.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/performance_summary.zh.md)
 - Loadtest report: [loadtest_report.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/loadtest_report.md)
 - Worker bottleneck: [loadtest_workers_bottleneck.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/loadtest_workers_bottleneck.md)
+
+## Release
+
+- Runbook / 发布手顺： [release_runbook.zh.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/release_runbook.zh.md)

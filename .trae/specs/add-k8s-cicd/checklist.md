@@ -1,0 +1,4 @@
+- [x] spec.md 覆盖 CI/CD 目标、环境（staging/prod）与安全模型（凭证/OIDC/最小权限）
+- [x] tasks.md 将工作拆分为可验证步骤，并包含依赖关系
+- [x] 明确是否需要新增对外 HTTP 服务入口（否则选择 Job/CronJob/Deployment 的运行方式）
+- [x] 明确 Kubernetes 部署形态与最小运维要求（资源、探针、配置注入）

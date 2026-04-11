@@ -1,0 +1,42 @@
+name: cd-prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Image ref to deploy (e.g. ghcr.io/OWNER/REPO:sha-<sha>)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "$KUBE_CONFIG_DATA" | base64 -d > "$HOME/.kube/config"
+
+      - name: Apply manifests
+        run: kubectl apply -k deploy/kustomize/overlays/prod
+
+      - name: Set image
+        run: kubectl -n adreq-prod set image deployment/adreq adreq=${{ inputs.image }}
+
+      - name: Rollout status
+        run: kubectl -n adreq-prod rollout status deployment/adreq --timeout=300s
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl -n adreq-prod get pods -l app.kubernetes.io/name=adreq -o wide || true
+          kubectl -n adreq-prod describe deployment adreq || true
