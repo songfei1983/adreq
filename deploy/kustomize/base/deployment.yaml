@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adreq
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adreq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adreq
+    spec:
+      containers:
+        - name: adreq
+          image: ghcr.io/songfei1983/adreq:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ADREQ_ADDR
+              value: ":8080"
+            - name: ADREQ_MODE
+              value: "direct"
+            - name: ADREQ_TIMEOUT
+              value: "100ms"
+            - name: ADREQ_MAX_REQUESTS
+              value: "0"
+            - name: ADREQ_ADMISSION
+              value: "reject"
+            - name: ADREQ_MAX_IMP_CONC
+              value: "0"
+            - name: ADREQ_MAX_CAND_CONC
+              value: "0"
+            - name: ADREQ_POOL_WORKERS
+              value: "16"
+            - name: ADREQ_POOL_QUEUE
+              value: "65536"
+            - name: ADREQ_READ_HEADER_TIMEOUT
+              value: "2s"
+            - name: ADREQ_SHUTDOWN_TIMEOUT
+              value: "5s"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+            timeoutSeconds: 1
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true

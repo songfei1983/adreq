@@ -59,7 +59,7 @@ flowchart LR
 
 ## 分层说明
 
-- `server`：只做“调度 + 聚合”，通过 Executor 扁平化并发地拉取候选与评估候选，最后对每个 `Imp` 做结果收敛与 Finalize。
+- `server`：只做“调度 + 聚合”，通过 Executor 扁平化并发地拉取候选与评估候选，最后对每个 `Imp` 做结果收敛与 Finalize；可选开启 `MaxConcurrentRequests` 做请求准入（reject|block）。
 - `bidder`：实现单候选处理（`ProcessCandidate`），调用 `filter.Chain` + `Bidder` 完成过滤与出价。
 - `filter`：通过 `Chain.Apply` 串行执行过滤器；预算检查读取 `infra.BudgetStore`，预算扣减在 Finalize 阶段执行。
 - `model`：纯数据结构与简单领域方法（如 `CandidateAd.PassesFloor`）。

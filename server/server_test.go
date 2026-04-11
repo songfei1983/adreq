@@ -145,6 +145,110 @@ func TestConcurrentRequests(t *testing.T) {
 	wg.Wait()
 }
 
+type oneImpSource struct {
+	ad model.CandidateAd
+}
+
+func (s oneImpSource) FetchCandidates(ctx context.Context, imp *model.Imp) ([]model.CandidateAd, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if imp == nil {
+		return nil, nil
+	}
+	ad := s.ad
+	ad.ImpID = imp.ID
+	return []model.CandidateAd{ad}, nil
+}
+
+type blockingProcessor struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (p *blockingProcessor) ProcessCandidate(ctx context.Context, ad model.CandidateAd) (*model.CandidateDecision, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if p.entered != nil {
+		p.once.Do(func() { close(p.entered) })
+	}
+	if p.release != nil {
+		select {
+		case <-p.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return &model.CandidateDecision{
+		Bid: &model.Bid{
+			ID:       ad.ID,
+			ImpID:    ad.ImpID,
+			Price:    ad.Price,
+			Currency: "USD",
+			Ext: model.BidExt{
+				CampaignID: ad.CampaignID,
+				Priority:   ad.Priority,
+				DealID:     ad.DealID,
+			},
+		},
+	}, nil
+}
+
+func TestMaxConcurrentRequestsBlock(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+
+	s := NewAdServer(oneImpSource{ad: model.CandidateAd{ID: "ad1", CampaignID: "c1", Price: 1}}, &blockingProcessor{
+		entered: entered,
+		release: release,
+	}, Config{
+		RequestTimeout:          500 * time.Millisecond,
+		MaxConcurrentRequests:   1,
+		RequestAdmissionMode:    RequestAdmissionBlock,
+		MaxConcurrentImps:       1,
+		MaxConcurrentCandidates: 1,
+	})
+
+	req := &model.BidRequest{ID: "r1", Imp: []model.Imp{{ID: "imp1"}}}
+
+	err1 := make(chan error, 1)
+	go func() {
+		_, err := s.HandleRequest(context.Background(), req)
+		err1 <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatalf("first request did not enter processing")
+	}
+
+	err2 := make(chan error, 1)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel2()
+	go func() {
+		_, err := s.HandleRequest(ctx2, req)
+		err2 <- err
+	}()
+
+	select {
+	case err := <-err2:
+		t.Fatalf("second request returned early: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(release)
+
+	if err := <-err1; err != nil {
+		t.Fatalf("first request failed: %v", err)
+	}
+	if err := <-err2; err != nil {
+		t.Fatalf("second request failed: %v", err)
+	}
+}
+
 type serialExecutor struct {
 	ctx   context.Context
 	tasks []func(context.Context) error

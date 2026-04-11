@@ -1,0 +1,6 @@
+.git
+.github
+.trae
+docs
+**/*_test.go
+**/*.md
