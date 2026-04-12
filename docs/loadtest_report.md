@@ -1,5 +1,7 @@
 # Loadtest 结果（Markdown + Mermaid）
 
+状态：已验证（in-process 压测；命令见下文“运行命令”）
+
 环境：
 - goos: darwin
 - goarch: arm64

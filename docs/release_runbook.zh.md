@@ -1,5 +1,7 @@
 # 发布手顺（Kubernetes）
 
+状态：已验证（docker-desktop k8s；/healthz、/readyz、/bid 已验证）
+
 本文描述基于当前仓库的 CI/CD 与 Kubernetes 清单的发布/回滚手顺，覆盖本地（docker-desktop/kind）与 GitHub Actions（staging/prod）。
 
 ## 交付形态

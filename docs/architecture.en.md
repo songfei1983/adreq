@@ -1,5 +1,7 @@
 # Architecture
 
+Status: Implemented (matches current codebase)
+
 This repository is a demo ad-request (bid request) processing pipeline. By responsibility, it can be viewed as:
 
 - Application service: `server` (request orchestration, concurrency scheduling, response assembly)

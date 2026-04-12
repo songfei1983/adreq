@@ -1,23 +1,24 @@
 # adreq
 
-[中文](file:///Users/songfei/Develop/github.com/songfei1983/adreq/README.md)
+[中文](README.md)
 
 A Go demo project for an ad-request (bid request) processing pipeline. It processes a `BidRequest` (with multiple `Imp`s) concurrently into a `BidResponse`, including candidate generation, filter chain, bidding, and top-N selection.
 
 ## Code Map
 
-- Entry & demo: [main.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/main.go)
-- Application service (orchestration & response assembly): [server/ad_server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/ad_server.go)
-- Domain service (single-candidate business logic): [bidder/processor.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/bidder/processor.go)
-- Candidate source (side-effects): [random_candidate_source.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/infra/random_candidate_source.go)
-- Concurrency executor: [executor/executor.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/executor/executor.go)
-- Infrastructure (WorkerPool): [worker_pool.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/infra/worker_pool.go)
-- Infrastructure (budget store): [infra/budget_store.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/infra/budget_store.go)
-- Policies/rules (filter chain, filters): [filter/chain.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/filter/chain.go)
-- Domain model (request/response/intermediate structs, split by struct): [model](file:///Users/songfei/Develop/github.com/songfei1983/adreq/model/)
-- Docs index (bilingual): [docs/README.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/README.md)
-- Architecture: [architecture.zh.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/architecture.zh.md) | [architecture.en.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/architecture.en.md)
-- Sequence: [sequence.zh.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/sequence.zh.md) | [sequence.en.md](file:///Users/songfei/Develop/github.com/songfei1983/adreq/docs/sequence.en.md)
+- Entry & demo: [main.go](main.go)
+- HTTP API entry (for K8s): [cmd/api](cmd/api/)
+- Application service (orchestration & response assembly): [server/ad_server.go](server/ad_server.go)
+- Domain service (single-candidate business logic): [bidder/processor.go](bidder/processor.go)
+- Candidate source (side-effects): [infra/random_candidate_source.go](infra/random_candidate_source.go)
+- Concurrency executor: [executor/executor.go](executor/executor.go)
+- Infrastructure (WorkerPool): [infra/worker_pool.go](infra/worker_pool.go)
+- Infrastructure (budget store): [infra/budget_store.go](infra/budget_store.go)
+- Policies/rules (filter chain, filters): [filter/chain.go](filter/chain.go)
+- Domain model (request/response/intermediate structs, split by struct): [model](model/)
+- Docs index (bilingual): [docs/README.md](docs/README.md)
+- Architecture: [architecture.zh.md](docs/architecture.zh.md) | [architecture.en.md](docs/architecture.en.md)
+- Sequence: [sequence.zh.md](docs/sequence.zh.md) | [sequence.en.md](docs/sequence.en.md)
 
 ## Pipeline
 
@@ -44,17 +45,18 @@ It runs two modes and prints JSON:
 go test ./...
 ```
 
-Tests are mainly in: [server/server_test.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/server_test.go)
+Tests are mainly in: [server/server_test.go](server/server_test.go)
+Status: Verified with `go test ./...`
 
 ## Performance
 
-Benchmarks (Direct vs WorkerPool, reports ns/op, allocs/op, %rejected): [server/bench_test.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/bench_test.go)
+Benchmarks (Direct vs WorkerPool, reports ns/op, allocs/op, %rejected): [server/bench_test.go](server/bench_test.go) (Implemented)
 
 ```bash
 go test ./server -run '^$' -bench 'BenchmarkHandleRequest_' -benchmem
 ```
 
-Load test (in-process, no HTTP): [cmd/loadtest](file:///Users/songfei/Develop/github.com/songfei1983/adreq/cmd/loadtest/)
+Load test (in-process, no HTTP): [cmd/loadtest](cmd/loadtest/) (Implemented)
 
 ```bash
 go run ./cmd/loadtest -mode=pool -sweep -duration=2s -imps=6 -cands=40 \
@@ -69,4 +71,4 @@ Request admission (cap in-flight requests):
 ## Notes
 
 - This repository focuses on demonstrating the pipeline and concurrency model; filter implementations are mostly placeholders.
-- `HandleRequestWithPool` waits for all workers to finish before aggregating results, avoiding empty `seatbid` due to timing issues (see [server/ad_server.go](file:///Users/songfei/Develop/github.com/songfei1983/adreq/server/ad_server.go)).
+- `HandleRequestWithPool` waits for all workers to finish before aggregating results, avoiding empty `seatbid` due to timing issues (see [server/ad_server.go](server/ad_server.go)).
