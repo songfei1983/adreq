@@ -1,5 +1,7 @@
 # Direct / WorkerPool 高 QPS 总结
 
+状态：已完成（与当前实现与内置压测工具一致）
+
 本文基于本仓库的实现（`server.AdServer`）与内置的 in-process 压测工具（`cmd/loadtest` / `go test -bench`），总结 Direct（进程内 Executor）与 WorkerPool（有界队列 + 固定 worker）两种并发调度方式的优缺点与容量估算方法，并给出压测落地建议。
 
 ## 结论先行

@@ -1,5 +1,7 @@
 # Sequence
 
+Status: Implemented (matches current codebase flow)
+
 This repository demonstrates two processing modes:
 
 - Direct: `server.AdServer` uses an Executor to fan out tasks (bounded concurrency) for `Imp` candidate fetch and candidate evaluation; business logic stays synchronous per-task

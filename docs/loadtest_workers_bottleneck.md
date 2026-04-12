@@ -1,5 +1,7 @@
 # Worker 数量对吞吐的影响（证明 worker 是瓶颈）
 
+状态：已验证（in-process 压测；命令见下文“运行命令”）
+
 ## 目的
 
 在 WorkerPool 模式下，固定足够大的 queue（避免拒绝/排队成为主要瓶颈），同时给每个 candidate 增加 CPU 计算负载，使系统进入 CPU-bound 状态，观察 ok 吞吐是否随 worker 数提升而提升（直至饱和）。
