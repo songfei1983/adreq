@@ -46,16 +46,17 @@ go test ./...
 ```
 
 Tests are mainly in: [server/server_test.go](server/server_test.go)
+Status: Verified with `go test ./...`
 
 ## Performance
 
-Benchmarks (Direct vs WorkerPool, reports ns/op, allocs/op, %rejected): [server/bench_test.go](server/bench_test.go)
+Benchmarks (Direct vs WorkerPool, reports ns/op, allocs/op, %rejected): [server/bench_test.go](server/bench_test.go) (Implemented)
 
 ```bash
 go test ./server -run '^$' -bench 'BenchmarkHandleRequest_' -benchmem
 ```
 
-Load test (in-process, no HTTP): [cmd/loadtest](cmd/loadtest/)
+Load test (in-process, no HTTP): [cmd/loadtest](cmd/loadtest/) (Implemented)
 
 ```bash
 go run ./cmd/loadtest -mode=pool -sweep -duration=2s -imps=6 -cands=40 \
