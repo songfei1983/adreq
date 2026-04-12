@@ -100,7 +100,7 @@ kubectl -n adreq-staging set image deployment/adreq adreq=adreq:local
 kubectl -n adreq-staging rollout status deployment/adreq --timeout=180s
 ```
 
-## staging 自动发布（GitHub Actions）
+## staging 手动发布（GitHub Actions）
 
 ### 前置（一次性）
 
@@ -116,12 +116,14 @@ base64 < ~/.kube/config | tr -d '\n'
 
 ### 流程
 
-- 触发：push 到 `master`
+- 触发：手动触发 `cd-staging` 工作流（workflow_dispatch）
 - 工作流：`.github/workflows/cd-staging.yml`
   - build & push：`ghcr.io/<owner>/<repo>:sha-<sha>` + `:latest`
   - `kubectl apply -k deploy/kustomize/overlays/staging`
   - `kubectl set image ...:sha-<sha>`
   - `kubectl rollout status`
+
+说明：如果你希望 staging 自动发布，可以把 `cd-staging` 的触发器改回 `push`（但需要先准备好 `KUBE_CONFIG_DATA` 等部署环境）。
 
 ### 验证
 
