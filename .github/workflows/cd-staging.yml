@@ -1,8 +1,11 @@
 name: cd-staging
 
 on:
-  push:
-    branches: [master]
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Optional image ref to deploy (default: build & push sha-<sha> for this run)
+        required: false
 
 permissions:
   contents: read
@@ -25,9 +28,14 @@ jobs:
 
       - id: meta
         run: |
-          echo "image=ghcr.io/${{ github.repository }}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          if [ -n "${{ inputs.image }}" ]; then
+            echo "image=${{ inputs.image }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image=ghcr.io/${{ github.repository }}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: docker/build-push-action@v6
+        if: ${{ inputs.image == '' }}
         with:
           context: .
           push: true
